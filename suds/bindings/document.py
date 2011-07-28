@@ -21,6 +21,7 @@ Provides classes for the (WS) SOAP I{document/literal}.
 from logging import getLogger
 from suds import *
 from suds.bindings.binding import Binding
+from suds.sax.element import Attribute
 from suds.sax.element import Element
 
 log = getLogger(__name__)
@@ -57,13 +58,20 @@ class Document(Binding):
         for pd in self.param_defs(method):
             if n < len(args):
                 value = args[n]
+            elif pd[1].isattr():
+                value = kwargs.get("_" + pd[0])
             else:
                 value = kwargs.get(pd[0])
             n += 1
 
-            # Skip optional keyword arguments. This could be caused for a choice
-            # element.
+            # Skip optional keyword arguments. This could be either elements
+            # that are contained in a choice, or an optional attribute.
             if pd[2] and value is None:
+                continue
+
+            # If we have an attribute, add it to the root element.
+            if pd[1].isattr():
+                root.attributes.append(Attribute(pd[0], value))
                 continue
 
             p = self.mkparam(method, pd, value)
@@ -127,11 +135,9 @@ class Document(Binding):
         for p in pts:
             resolved = p[1].resolve()
             for child, ancestry in resolved:
-                if child.isattr():
-                    continue
                 # Determine if the argument should be optional because it is
-                # a choice element.
-                optional_arg = self.bychoice(ancestry)
+                # contained in a choice element, or is an optional argument.
+                optional_arg = self.bychoice(ancestry) or child.optional()
                 result.append((child.name, child, optional_arg))
         return result
 
