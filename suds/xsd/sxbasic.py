@@ -484,7 +484,36 @@ class Extension(SchemaObject):
         return ('ref',)
 
 
-class Import(SchemaObject):
+class Reference(SchemaObject):
+    """
+    Base class that shares common code between imports and includes.
+    """
+    def __init__(self, schema, root):
+        SchemaObject.__init__(self, schema, root)
+
+        self.url    = ""
+        self.opened = False
+
+    def build_schema(self, root, options):
+        """
+        Helper method that builds and resolves a Schema object for the
+        given elements with the specified options.
+
+        @type  root:    suds.sax.element.Element
+        @param root:    Element that is referenced and should be resolved.
+        @type  options: suds.options.Options
+        @param options: Settings to use when building the schema.
+        """
+        schema = self.schema.instance(root, self.url, options)
+        schema.build()
+        schema.open_imports(options)
+        log.debug('built:\n%s', schema)
+        schema.dereference()
+        log.debug('dereferenced:\n%s', schema)
+        return schema
+
+
+class Import(Reference):
     """
     Represents an (xsd) schema <xs:import/> node
     @cvar locations: A dictionary of namespace locations.
@@ -515,12 +544,11 @@ class Import(SchemaObject):
         cls.locations[ns] = location
 
     def __init__(self, schema, root):
-        SchemaObject.__init__(self, schema, root)
+        Reference.__init__(self, schema, root)
         self.ns = (None, root.get('namespace'))
         self.location = root.get('schemaLocation')
         if self.location is None:
             self.location = self.locations.get(self.ns[1])
-        self.opened = False
 
         # Build up the complete URL for the import.
         self.url = self.location
@@ -563,13 +591,7 @@ class Import(SchemaObject):
             root = d.root()
             root.set('url', self.url)
 
-            schema = self.schema.instance(root, self.url, options)
-            schema.build()
-            schema.open_imports(options)
-            log.debug('built:\n%s', schema)
-            schema.dereference()
-            log.debug('dereferenced:\n%s', schema)
-            return schema
+            return self.build_schema(root, options)
         except TransportError:
             msg = 'imported schema (%s) at (%s), failed' % (self.ns[1], self.url)
             log.error('%s, %s', self.id, msg, exc_info=True)
@@ -579,7 +601,7 @@ class Import(SchemaObject):
         return ('ns', 'location')
 
 
-class Include(SchemaObject):
+class Include(Reference):
     """
     Represents an (xsd) schema <xs:include/> node
     @ivar location: The (optional) location.
@@ -591,9 +613,8 @@ class Include(SchemaObject):
     locations = {}
 
     def __init__(self, schema, root):
-        SchemaObject.__init__(self, schema, root)
+        Reference.__init__(self, schema, root)
         self.location = root.get('schemaLocation')
-        self.opened = False
 
         # Build up the complete URL for the import.
         self.url = self.location
@@ -625,13 +646,7 @@ class Include(SchemaObject):
             root.set('url', self.url)
             self.__applytns(root)
 
-            schema = self.schema.instance(root, self.url, options)
-            schema.build()
-            schema.open_imports(options)
-            log.debug('built:\n%s', schema)
-            schema.dereference()
-            log.debug('dereferenced:\n%s', schema)
-            return schema
+            return self.build_schema(root, options)
         except TransportError:
             msg = 'include schema at (%s), failed' % self.url
             log.error('%s, %s', self.id, msg, exc_info=True)
