@@ -34,6 +34,7 @@ from suds.xsd.deplist import DepList
 from suds.sax.element import Element
 from suds.sax import splitPrefix, Namespace
 from logging import getLogger
+from urlparse import urljoin
 
 log = getLogger(__name__)
 
@@ -58,6 +59,7 @@ class SchemaCollection:
         self.wsdl = wsdl
         self.children = []
         self.namespaces = {}
+        self.importCache = {}
 
     def add(self, schema):
         """
@@ -94,6 +96,8 @@ class SchemaCollection:
         for child in self.children:
             child.dereference()
         log.debug('loaded:\n%s', self)
+
+        # Merge all of our child Schemas into a single object.
         merged = self.merge()
         log.debug('MERGED:\n%s', merged)
         return merged
@@ -221,12 +225,6 @@ class Schema:
             self.form_qualified = False
         else:
             self.form_qualified = ( form == 'qualified' )
-        if container is None:
-            self.build()
-            self.open_imports(options)
-            log.debug('built:\n%s', self)
-            self.dereference()
-            log.debug('dereferenced:\n%s', self)
 
     def mktns(self):
         """
@@ -302,11 +300,16 @@ class Schema:
         @type options: L{options.Options}
         """
         for imp in self.imports:
-            imported = imp.open(options)
-            if imported is None:
-                continue
-            imported.open_imports(options)
-            log.debug('imported:\n%s', imported)
+            if imp.url in self.container.importCache:
+                imported = self.container.importCache[imp.url]
+            else:
+                imported = imp.open(options)
+                if imported is None:
+                    continue
+                imported.open_imports(options)
+
+            # Since our children are not part of the top level collection,
+            # we need to merge them into ourselves after they are opened.
             self.merge(imported)
 
     def dereference(self):
@@ -394,7 +397,11 @@ class Schema:
         @rtype: L{Schema}
         @note: This is only used by Import children.
         """
-        return Schema(root, baseurl, options)
+        # Construct a new schema object for the given element and add it to
+        # our top level container's cache.
+        schema = Schema(root, baseurl, options, self.container)
+        self.container.importCache[baseurl] = schema
+        return schema
 
     def str(self, indent=0):
         tab = '%*s'%(indent*3, '')

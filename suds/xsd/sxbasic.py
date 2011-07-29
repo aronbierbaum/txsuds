@@ -522,6 +522,11 @@ class Import(SchemaObject):
             self.location = self.locations.get(self.ns[1])
         self.opened = False
 
+        # Build up the complete URL for the import.
+        self.url = self.location
+        if '://' not in self.url:
+            self.url = urljoin(self.schema.baseurl, self.url)
+
     def open(self, options):
         """
         Open and import the refrenced schema.
@@ -552,17 +557,21 @@ class Import(SchemaObject):
 
     def download(self, options):
         """ download the schema """
-        url = self.location
         try:
-            if '://' not in url:
-                url = urljoin(self.schema.baseurl, url)
             reader = DocumentReader(options)
-            d = reader.open(url)
+            d = reader.open(self.url)
             root = d.root()
-            root.set('url', url)
-            return self.schema.instance(root, url, options)
+            root.set('url', self.url)
+
+            schema = self.schema.instance(root, self.url, options)
+            schema.build()
+            schema.open_imports(options)
+            log.debug('built:\n%s', schema)
+            schema.dereference()
+            log.debug('dereferenced:\n%s', schema)
+            return schema
         except TransportError:
-            msg = 'imported schema (%s) at (%s), failed' % (self.ns[1], url)
+            msg = 'imported schema (%s) at (%s), failed' % (self.ns[1], self.url)
             log.error('%s, %s', self.id, msg, exc_info=True)
             raise Exception(msg)
 
@@ -588,6 +597,11 @@ class Include(SchemaObject):
             self.location = self.locations.get(self.ns[1])
         self.opened = False
 
+        # Build up the complete URL for the import.
+        self.url = self.location
+        if '://' not in self.url:
+            self.url = urljoin(self.schema.baseurl, self.url)
+
     def open(self, options):
         """
         Open and include the refrenced schema.
@@ -606,18 +620,22 @@ class Include(SchemaObject):
 
     def download(self, options):
         """ download the schema """
-        url = self.location
         try:
-            if '://' not in url:
-                url = urljoin(self.schema.baseurl, url)
             reader = DocumentReader(options)
-            d = reader.open(url)
+            d = reader.open(self.url)
             root = d.root()
-            root.set('url', url)
+            root.set('url', self.url)
             self.__applytns(root)
-            return self.schema.instance(root, url, options)
+
+            schema = self.schema.instance(root, self.url, options)
+            schema.build()
+            schema.open_imports(options)
+            log.debug('built:\n%s', schema)
+            schema.dereference()
+            log.debug('dereferenced:\n%s', schema)
+            return schema
         except TransportError:
-            msg = 'include schema at (%s), failed' % url
+            msg = 'include schema at (%s), failed' % self.url
             log.error('%s, %s', self.id, msg, exc_info=True)
             raise Exception(msg)
 
