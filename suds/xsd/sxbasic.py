@@ -593,8 +593,6 @@ class Include(SchemaObject):
     def __init__(self, schema, root):
         SchemaObject.__init__(self, schema, root)
         self.location = root.get('schemaLocation')
-        if self.location is None:
-            self.location = self.locations.get(self.ns[1])
         self.opened = False
 
         # Build up the complete URL for the import.
