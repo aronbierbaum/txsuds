@@ -26,6 +26,7 @@ from suds import *
 from suds.reader import DefinitionsReader
 from suds.transport import TransportError, Request
 from suds.transport.https import HttpAuthenticated
+from suds.transport.twisted_transport import TwistedTransport
 from suds.servicedefinition import ServiceDefinition
 from suds import sudsobject
 from sudsobject import Factory as InstFactory
@@ -44,6 +45,8 @@ from suds.plugin import PluginContainer
 from logging import getLogger
 
 log = getLogger(__name__)
+
+from twisted.internet import defer
 
 
 class Client(object):
@@ -103,22 +106,35 @@ class Client(object):
         @param kwargs: keyword arguments.
         @see: L{Options}
         """
-        options = Options()
-        options.transport = HttpAuthenticated()
-        self.options = options
-        options.cache = ObjectCache(days=1)
+        self.url          = url
+        options           = Options()
+        options.transport = TwistedTransport()
+        self.options      = options
+        options.cache     = ObjectCache(days = 1)
+        self.factory      = None
+        self.service      = None
+        self.sd           = []
+        self.messages     = dict(tx = None, rx = None)
+
         self.set_options(**kwargs)
-        reader = DefinitionsReader(options, Definitions)
-        self.wsdl = reader.open(url)
-        plugins = PluginContainer(options.plugins)
+
+    @defer.inlineCallbacks
+    def connect(self):
+        """
+        Connect to the specified server.
+        """
+        self.sd       = []
+        self.messages = dict(tx = None, rx = None)
+
+        reader = DefinitionsReader(self.options, Definitions)
+        self.wsdl = yield reader.open(self.url)
+        plugins = PluginContainer(self.options.plugins)
         plugins.init.initialized(wsdl=self.wsdl)
         self.factory = Factory(self.wsdl)
         self.service = ServiceSelector(self, self.wsdl.services)
-        self.sd = []
         for s in self.wsdl.services:
             sd = ServiceDefinition(self.wsdl, s)
             self.sd.append(sd)
-        self.messages = dict(tx=None, rx=None)
 
     def set_options(self, **kwargs):
         """
@@ -527,6 +543,8 @@ class Method:
         self.client = client
         self.method = method
 
+    # NOTE: This will forward the defer.Deferred object that is returned by
+    #       the client's invoke method.
     def __call__(self, *args, **kwargs):
         """
         Invoke the method.
@@ -578,6 +596,7 @@ class SoapClient:
         self.options = client.options
         self.cookiejar = CookieJar()
 
+    @defer.inlineCallbacks
     def invoke(self, args, kwargs):
         """
         Send the required soap message to invoke the specified method
@@ -599,14 +618,15 @@ class SoapClient:
                 self.method.name,
                 timer)
         timer.start()
-        result = self.send(soapenv)
+        result = yield self.send(soapenv)
         timer.stop()
         metrics.log.debug(
                 "method '%s' invoked: %s",
                 self.method.name,
                 timer)
-        return result
+        defer.returnValue(result)
 
+    @defer.inlineCallbacks
     def send(self, soapenv):
         """
         Send soap message.
@@ -636,26 +656,29 @@ class SoapClient:
             ctx = plugins.message.sending(envelope=soapenv)
             soapenv = ctx.envelope
             if nosend:
-                return RequestContext(self, binding, soapenv)
+                defer.returnValue(RequestContext(self, binding, soapenv))
+
             request = Request(location, soapenv)
             request.headers = self.headers()
-            timer.start()
-            reply = transport.send(request)
-            timer.stop()
-            metrics.log.debug('waited %s on server reply', timer)
-            ctx = plugins.message.received(reply=reply.message)
-            reply.message = ctx.reply
+            #timer.start()
+            #reply = transport.send(request)
+            #timer.stop()
+            #metrics.log.debug('waited %s on server reply', timer)
+
+            reply = yield transport.send(request)
+
+            ctx = plugins.message.received(reply = reply.message)
             if retxml:
-                result = reply.message
+                result = ctx.reply
             else:
-                result = self.succeeded(binding, reply.message)
+                result = self.succeeded(binding, ctx.reply)
         except TransportError, e:
             if e.httpcode in (202,204):
                 result = None
             else:
                 log.error(self.last_sent())
                 result = self.failed(binding, e)
-        return result
+        defer.returnValue(result)
 
     def headers(self):
         """

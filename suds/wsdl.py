@@ -34,6 +34,8 @@ from suds.reader import DocumentReader, DefinitionsReader
 from urlparse import urljoin
 import re, soaparray
 
+from twisted.internet import defer
+
 log = getLogger(__name__)
 
 wsdlns = (None, "http://schemas.xmlsoap.org/wsdl/")
@@ -131,15 +133,9 @@ class Definitions(WObject):
         @param options: An options dictionary.
         @type options: L{options.Options}
         """
-        log.debug('reading wsdl at: %s ...', url)
-        reader = DocumentReader(options)
-        d = reader.open(url)
-        root = d.root()
-        WObject.__init__(self, root)
+        WObject.__init__(self, root = None)
         self.id = objid(self)
         self.options = options
-        self.url = url
-        self.tns = self.mktns(root)
         self.types = []
         self.schema = None
         self.children = []
@@ -148,19 +144,30 @@ class Definitions(WObject):
         self.port_types = {}
         self.bindings = {}
         self.services = []
-        self.add_children(self.root)
-        self.children.sort()
+        self.url = url
         pmd = self.__metadata__.__print__
         pmd.excludes.append('children')
         pmd.excludes.append('wsdl')
         pmd.wrappers['schema'] = repr
-        self.open_imports()
+
+    @defer.inlineCallbacks
+    def build(self):
+        log.debug('reading wsdl at: %s ...', self.url)
+        reader = DocumentReader(self.options)
+        d = yield reader.open(self.url)
+        root = d.root()
+        WObject.__init__(self, root)
+        self.root = root
+        self.tns = self.mktns(root)
+        self.add_children(self.root)
+        self.children.sort()
+        yield self.open_imports()
         self.resolve()
-        self.build_schema()
+        yield self.build_schema()
         self.set_wrapped()
         for s in self.services:
             self.add_methods(s)
-        log.debug("wsdl at '%s' loaded:\n%s", url, self)
+        log.debug("wsdl at '%s' loaded:\n%s", self.url, self)
 
     def mktns(self, root):
         """ Get/create the target namespace """
@@ -196,16 +203,18 @@ class Definitions(WObject):
                 self.services.append(child)
                 continue
 
+    @defer.inlineCallbacks
     def open_imports(self):
         """ Import the I{imported} WSDLs. """
         for imp in self.imports:
-            imp.load(self)
+            yield imp.load(self)
 
     def resolve(self):
         """ Tell all children to resolve themselves """
         for c in self.children:
             c.resolve(self)
 
+    @defer.inlineCallbacks
     def build_schema(self):
         """ Process L{Types} objects and create the schema collection """
         container = SchemaCollection(self)
@@ -217,10 +226,10 @@ class Definitions(WObject):
             root = Element.buildPath(self.root, 'types/schema')
             schema = Schema(root, self.url, self.options, container)
             container.add(schema)
-        self.schema = container.load(self.options)
+        self.schema = yield container.load(self.options)
         for s in [t.schema() for t in self.types if t.imported()]:
             self.schema.merge(s)
-        return self.schema
+        defer.returnValue(self.schema)
 
     def add_methods(self, service):
         """ Build method view for service """
@@ -304,6 +313,7 @@ class Import(WObject):
         pmd = self.__metadata__.__print__
         pmd.wrappers['imported'] = repr
 
+    @defer.inlineCallbacks
     def load(self, definitions):
         """ Load the object by opening the URL """
         url = self.location
@@ -312,6 +322,7 @@ class Import(WObject):
             url = urljoin(definitions.url, url)
         options = definitions.options
         d = Definitions(url, options)
+        yield d.open(url)
         if d.root.match(Definitions.Tag, wsdlns):
             self.import_definitions(definitions, d)
             return

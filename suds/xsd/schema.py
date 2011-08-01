@@ -36,6 +36,8 @@ from suds.sax import splitPrefix, Namespace
 from logging import getLogger
 from urlparse import urljoin
 
+from twisted.internet import defer
+
 log = getLogger(__name__)
 
 
@@ -77,6 +79,7 @@ class SchemaCollection:
             existing.root.children += schema.root.children
             existing.root.nsprefixes.update(schema.root.nsprefixes)
 
+    @defer.inlineCallbacks
     def load(self, options):
         """
         Load the schema objects for the root nodes.
@@ -92,7 +95,7 @@ class SchemaCollection:
         for child in self.children:
             child.build()
         for child in self.children:
-            child.open_imports(options)
+            yield child.open_imports(options)
         for child in self.children:
             child.dereference()
         log.debug('loaded:\n%s', self)
@@ -100,7 +103,7 @@ class SchemaCollection:
         # Merge all of our child Schemas into a single object.
         merged = self.merge()
         log.debug('MERGED:\n%s', merged)
-        return merged
+        defer.returnValue(merged)
 
     def autoblend(self):
         """
@@ -291,6 +294,7 @@ class Schema:
         schema.merged = True
         return self
 
+    @defer.inlineCallbacks
     def open_imports(self, options):
         """
         Instruct all contained L{sxbasic.Import} children to import
@@ -303,10 +307,11 @@ class Schema:
             if imp.url in self.container.importCache:
                 imported = self.container.importCache[imp.url]
             else:
-                imported = imp.open(options)
+                # NOTE: This could cause a download.
+                imported = yield imp.open(options)
                 if imported is None:
                     continue
-                imported.open_imports(options)
+                yield imported.open_imports(options)
 
             # Since our children are not part of the top level collection,
             # we need to merge them into ourselves after they are opened.

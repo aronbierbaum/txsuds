@@ -29,6 +29,7 @@ from suds.transport import TransportError
 from suds.reader import DocumentReader
 from urlparse import urljoin
 
+from twisted.internet import defer
 
 log = getLogger(__name__)
 
@@ -494,6 +495,7 @@ class Reference(SchemaObject):
         self.url    = ""
         self.opened = False
 
+    @defer.inlineCallbacks
     def build_schema(self, root, options):
         """
         Helper method that builds and resolves a Schema object for the
@@ -506,11 +508,11 @@ class Reference(SchemaObject):
         """
         schema = self.schema.instance(root, self.url, options)
         schema.build()
-        schema.open_imports(options)
+        yield schema.open_imports(options)
         log.debug('built:\n%s', schema)
         schema.dereference()
         log.debug('dereferenced:\n%s', schema)
-        return schema
+        defer.returnValue(schema)
 
 
 class Import(Reference):
@@ -555,6 +557,7 @@ class Import(Reference):
         if '://' not in self.url:
             self.url = urljoin(self.schema.baseurl, self.url)
 
+    @defer.inlineCallbacks
     def open(self, options):
         """
         Open and import the refrenced schema.
@@ -564,7 +567,7 @@ class Import(Reference):
         @rtype: L{Schema}
         """
         if self.opened:
-            return
+            defer.returnValue(None)
         self.opened = True
         log.debug('%s, importing ns="%s", location="%s"', self.id, self.ns[1], self.location)
         result = self.locate()
@@ -572,9 +575,9 @@ class Import(Reference):
             if self.location is None:
                 log.debug('imported schema (%s) not-found', self.ns[1])
             else:
-                result = self.download(options)
+                result = yield self.download(options)
         log.debug('imported:\n%s', result)
-        return result
+        defer.returnValue(result)
 
     def locate(self):
         """ find the schema locally """
@@ -583,15 +586,16 @@ class Import(Reference):
         else:
             return self.schema.locate(self.ns)
 
+    @defer.inlineCallbacks
     def download(self, options):
         """ download the schema """
         try:
             reader = DocumentReader(options)
-            d = reader.open(self.url)
+            d = yield reader.open(self.url)
             root = d.root()
             root.set('url', self.url)
 
-            return self.build_schema(root, options)
+            defer.returnValue(self.build_schema(root, options))
         except TransportError:
             msg = 'imported schema (%s) at (%s), failed' % (self.ns[1], self.url)
             log.error('%s, %s', self.id, msg, exc_info=True)
@@ -621,6 +625,7 @@ class Include(Reference):
         if '://' not in self.url:
             self.url = urljoin(self.schema.baseurl, self.url)
 
+    @defer.inlineCallbacks
     def open(self, options):
         """
         Open and include the refrenced schema.
@@ -630,23 +635,24 @@ class Include(Reference):
         @rtype: L{Schema}
         """
         if self.opened:
-            return
+            defer.returnValue()
         self.opened = True
         log.debug('%s, including location="%s"', self.id, self.location)
-        result = self.download(options)
+        result = yield self.download(options)
         log.debug('included:\n%s', result)
-        return result
+        defer.returnValue(result)
 
+    @defer.inlineCallbacks
     def download(self, options):
         """ download the schema """
         try:
             reader = DocumentReader(options)
-            d = reader.open(self.url)
+            d = yield reader.open(self.url)
             root = d.root()
             root.set('url', self.url)
             self.__applytns(root)
 
-            return self.build_schema(root, options)
+            defer.returnValue(self.build_schema(root, options))
         except TransportError:
             msg = 'include schema at (%s), failed' % self.url
             log.error('%s, %s', self.id, msg, exc_info=True)

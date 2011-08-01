@@ -77,6 +77,9 @@ class HttpTransport(Transport):
             fp = self.u2open(u2request)
             self.getcookies(fp, u2request)
             result = Reply(200, fp.headers.dict, fp.read())
+            #print "FP:", fp
+            #print "H:", fp.headers.__class__
+            #print "D:", fp.headers.dict
             log.debug('received:\n%s', result)
         except u2.HTTPError, e:
             if e.code in (202,204):

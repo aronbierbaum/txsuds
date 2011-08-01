@@ -26,6 +26,8 @@ from suds.store import DocumentStore
 from suds.plugin import PluginContainer
 from logging import getLogger
 
+from twisted.internet import defer
+
 
 log = getLogger(__name__)
 
@@ -60,6 +62,7 @@ class DocumentReader(Reader):
     between the SAX L{Parser} and the document cache.
     """
 
+    @defer.inlineCallbacks
     def open(self, url):
         """
         Open an XML document at the specified I{url}.
@@ -76,11 +79,13 @@ class DocumentReader(Reader):
         id = self.mangle(url, 'document')
         d = cache.get(id)
         if d is None:
-            d = self.download(url)
+            d = yield self.download(url)
             cache.put(id, d)
         self.plugins.document.parsed(url=url, document=d.root())
-        return d
 
+        defer.returnValue(d)
+
+    @defer.inlineCallbacks
     def download(self, url):
         """
         Download the docuemnt.
@@ -91,14 +96,17 @@ class DocumentReader(Reader):
         """
         store = DocumentStore()
         fp = store.open(url)
-        if fp is None:
-            fp = self.options.transport.open(Request(url))
-        content = fp.read()
-        fp.close()
+
+        if fp is not None:
+            content = fp.read()
+            fp.close()
+        else:
+            content = yield self.options.transport.open(Request(url))
+
         ctx = self.plugins.document.loaded(url=url, document=content)
         content = ctx.document
         sax = Parser()
-        return sax.parse(string=content)
+        defer.returnValue(sax.parse(string = content))
 
     def cache(self):
         """
@@ -132,6 +140,7 @@ class DefinitionsReader(Reader):
         Reader.__init__(self, options)
         self.fn = fn
 
+    @defer.inlineCallbacks
     def open(self, url):
         """
         Open a WSDL at the specified I{url}.
@@ -150,12 +159,13 @@ class DefinitionsReader(Reader):
         d = cache.get(id)
         if d is None:
             d = self.fn(url, self.options)
+            yield d.build()
             cache.put(id, d)
         else:
             d.options = self.options
             for imp in d.imports:
                 imp.imported.options = self.options
-        return d
+        defer.returnValue(d)
 
     def cache(self):
         """
