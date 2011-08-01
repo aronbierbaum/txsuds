@@ -595,7 +595,8 @@ class Import(Reference):
             root = d.root()
             root.set('url', self.url)
 
-            defer.returnValue(self.build_schema(root, options))
+            schema = yield self.build_schema(root, options)
+            defer.returnValue(schema)
         except TransportError:
             msg = 'imported schema (%s) at (%s), failed' % (self.ns[1], self.url)
             log.error('%s, %s', self.id, msg, exc_info=True)
