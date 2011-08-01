@@ -44,6 +44,16 @@ class Options(Skin):
         - B{password} - The password used for http authentication.
                 - type: I{str}
                 - default: None
+        - B{certificate} - The raw private key data, or the path to the file
+                           that contains the private key.
+                - type: {basestring}
+                - default: None
+        - B{certificate} - The raw certificate data, or the path to the file
+                           that contains the certificate.
+                - type: {basestring}
+                - default: None
+
+        @see twisted.internet._sslverify.OpenSSLCertificateOptions
     """
     def __init__(self, **kwargs):
         domain = __name__
@@ -53,5 +63,17 @@ class Options(Skin):
             Definition('headers', dict, {}),
             Definition('username', basestring, None),
             Definition('password', basestring, None),
+            Definition('privateKey', basestring, None),
+            Definition('certificate', basestring, None),
+            Definition('method', int, None),
+            Definition('verify', bool, False),
+            Definition('caCerts', list, None),
+            Definition('verifyDepth', int, 9),
+            Definition('requireCertificate', bool, True),
+            Definition('verifyOnce', bool, True),
+            Definition('enableSingleUseKeys', bool, True),
+            Definition('enableSessions', bool, True),
+            Definition('fixBrokenPeers', bool, False),
+            Definition('enableSessionTickets', bool, False)
         ]
         Skin.__init__(self, domain, definitions, kwargs)
