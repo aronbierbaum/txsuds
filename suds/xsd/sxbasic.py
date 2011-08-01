@@ -653,7 +653,8 @@ class Include(Reference):
             root.set('url', self.url)
             self.__applytns(root)
 
-            defer.returnValue(self.build_schema(root, options))
+            schema = yield self.build_schema(root, options)
+            defer.returnValue(schema)
         except TransportError:
             msg = 'include schema at (%s), failed' % self.url
             log.error('%s, %s', self.id, msg, exc_info=True)
