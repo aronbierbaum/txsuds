@@ -1,4 +1,5 @@
 import logging
+import os
 
 log = logging.getLogger(__name__)
 
@@ -8,6 +9,7 @@ from twisted.internet.protocol import Protocol
 from twisted.web.client        import Agent
 from twisted.web.http_headers  import Headers
 from twisted.web.iweb          import IBodyProducer
+
 from zope.interface            import implements
 
 from suds.transport import Reply, Transport
@@ -86,6 +88,12 @@ class TwistedTransport(Transport):
 
         @raise TransportError: On all transport errors.
         """
+        if request.url.startswith("file:///"):
+            local_fname = os.path.normpath(request.url[8:])
+            with open(local_fname, "rb") as local_file:
+                content = local_file.read()
+            defer.returnValue(content)
+
         headers = Headers()
         for (key, value) in request.headers.iteritems():
             headers.addRawHeader(key, value)
