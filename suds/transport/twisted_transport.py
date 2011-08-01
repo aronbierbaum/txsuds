@@ -128,6 +128,36 @@ class TwistedTransport(Transport):
     contextFactory = property(_getContextFactory)
 
     @defer.inlineCallbacks
+    def _request(self, request, method):
+        """
+        Helper method that sends the given HTTP request.
+        """
+        # Copy the headers from the request.
+        headers = Headers()
+        for (key, value) in request.headers.iteritems():
+            headers.addRawHeader(key, value)
+
+        # If a username and password are given, then add basic authentication.
+        if (self.options.username is not None and
+            self.options.password is not None):
+            auth = "%s:%s" % (self.options.username, self.options.password)
+            auth = auth.encode("base64").strip()
+            headers.addRawHeader('Authorization', 'Basic ' + auth)
+
+        # Construct an agent to send the request.
+        producer = StringProducer(request.message or "")
+        agent = Agent(reactor, self.contextFactory)
+        url = request.url.encode("utf-8")
+        response = yield agent.request(method, url, headers, producer)
+
+        # Construct a simple response consumer and give it the response body.
+        consumer = StringResponseConsumer()
+        response.deliverBody(consumer)
+        yield consumer.getDeferred()
+        consumer.response = response
+        defer.returnValue(consumer)
+
+    @defer.inlineCallbacks
     def open(self, request):
         """
         Open the url in the specified request.
@@ -146,24 +176,7 @@ class TwistedTransport(Transport):
                 content = local_file.read()
             defer.returnValue(content)
 
-        headers = Headers()
-        for (key, value) in request.headers.iteritems():
-            headers.addRawHeader(key, value)
-
-        if (self.options.username is not None and
-            self.options.password is not None):
-            auth = "%s:%s" % (self.options.username, self.options.password)
-            auth = auth.encode("base64").strip()
-            headers.addRawHeader('Authorization', 'Basic ' + auth)
-
-        producer = StringProducer(request.message or "")
-        agent = Agent(reactor, self.contextFactory)
-        url = request.url.encode("utf-8")
-        response = yield agent.request("GET", url, headers, producer)
-        consumer = StringResponseConsumer()
-        response.deliverBody(consumer)
-        yield consumer.getDeferred()
-        res_headers = dict(response.headers.getAllRawHeaders())
+        consumer = yield self._request(request, "GET")
         defer.returnValue(consumer.body)
 
     @defer.inlineCallbacks
@@ -182,22 +195,7 @@ class TwistedTransport(Transport):
         @rtype: L{Reply}
         @raise TransportError: On all transport errors.
         """
-        headers = Headers()
-        for (key, value) in request.headers.iteritems():
-            headers.addRawHeader(key, value)
-
-        if (self.options.username is not None and
-            self.options.password is not None):
-            auth = "%s:%s" % (self.options.username, self.options.password)
-            auth = auth.encode("base64").strip()
-            headers.addRawHeader('Authorization', 'Basic ' + auth)
-
-        producer = StringProducer(request.message or "")
-        agent = Agent(reactor, self.contextFactory)
-        response = yield agent.request("POST", request.url, headers, producer)
-        consumer = StringResponseConsumer()
-        response.deliverBody(consumer)
-        yield consumer.getDeferred()
-        res_headers = dict(response.headers.getAllRawHeaders())
-        result = Reply(response.code, res_headers, consumer.body)
+        consumer = yield self._request(request, "POST")
+        res_headers = dict(consumer.response.headers.getAllRawHeaders())
+        result = Reply(consumer.response.code, res_headers, consumer.body)
         defer.returnValue(result)
