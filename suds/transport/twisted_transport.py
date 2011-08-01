@@ -14,34 +14,33 @@ from suds.transport import Reply, Transport
 
 
 class StringResponseConsumer(Protocol):
-   """
-   Protocol that consumes the entire response body into a string and provides
-   a simple callback interface for the user to be triggered when the response
-   is complete.
+    """
+    Protocol that consumes the entire response body into a string and provides
+    a simple callback interface for the user to be triggered when the response
+    is complete.
 
-   @ivar response:  The response that filled us.
-   @ivar _finished: Deferred that is triggered when the body is completed.
-   """
-   # pylint: disable-msg=W0222
-   def __init__(self):
-      self._finished = defer.Deferred()
-      self.response  = None
-      self.body      = ""
+    @ivar response:  The response that filled us.
+    @ivar _finished: Deferred that is triggered when the body is completed.
+    """
+    def __init__(self):
+        self._finished = defer.Deferred()
+        self.response  = None
+        self.body      = ""
 
-   def getDeferred(self):
-      """ Return the deferred that is triggered after full completion. """
-      return self._finished
+    def getDeferred(self):
+        """ Return the deferred that is triggered after full completion. """
+        return self._finished
 
-   def dataReceived(self, data):
-      self.body = self.body + data
+    def dataReceived(self, data):
+        self.body = self.body + data
 
-   def connectionLost(self, reason):
-      """ Callback to finished with copy of ourselves. """
-      self._finished.callback(self)
+    def connectionLost(self, reason):
+        """ Callback to finished with copy of ourselves. """
+        self._finished.callback(self)
 
-   def responseWithoutBody(self):
-      """ Called when the response does not contain a body. """
-      self._finished.callback(self)
+    def responseWithoutBody(self):
+        """ Called when the response does not contain a body. """
+        self._finished.callback(self)
 
 
 class StringProducer(object):
