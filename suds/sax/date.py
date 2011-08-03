@@ -140,8 +140,6 @@ class Time:
             return
         if isinstance(time, basestring):
             self.time = self.__parse(time)
-            if adjusted:
-                self.__adjust()
             return
         raise ValueError, type(time)
 
@@ -177,17 +175,6 @@ class Time:
         """
         return self.time.microsecond
 
-    def __adjust(self):
-        """
-        Adjust for TZ offset.
-        """
-        if hasattr(self, 'offset'):
-            today = dt.date.today()
-            delta = self.tz.adjustment(self.offset)
-            d = dt.datetime.combine(today, self.time)
-            d = ( d + delta )
-            self.time = d.time()
-
     def __parse(self, s):
         """
         Parse the string date.
@@ -204,18 +191,22 @@ class Time:
         @rtype: B{datetime}.I{time}
         """
         try:
-            offset = None
+            # If no offset is given, then we should assume we are in the
+            # local timezone.
+            offset = self.tz.local
             part = Timezone.split(s)
             hour, minute, second = part[0].split(':', 2)
             hour = int(hour)
             minute = int(minute)
             second, ms = self.__second(second)
             if len(part) == 2:
-                self.offset = self.__offset(part[1])
+                offset = self.__offset(part[1])
+
+            timezone = FixedOffsetTimezone(offset)
             if ms is None:
-                return dt.time(hour, minute, second)
+                return dt.time(hour, minute, second, tzinfo = timezone)
             else:
-                return dt.time(hour, minute, second, ms)
+                return dt.time(hour, minute, second, ms, tzinfo = timezone)
         except:
             log.debug(s, exec_info=True)
             raise ValueError, 'Invalid format "%s"' % s
@@ -256,11 +247,7 @@ class Time:
         return unicode(self)
 
     def __unicode__(self):
-        time = self.time.isoformat()
-        if self.tz.local:
-            return '%s%+.2d:00' % (time, self.tz.local)
-        else:
-            return '%sZ' % time
+        return self.time.isoformat()
 
 
 class DateTime(Date,Time):
@@ -294,24 +281,8 @@ class DateTime(Date,Time):
             Time.__init__(self, part[1], 0)
             self.datetime = \
                 dt.datetime.combine(self.date, self.time)
-            self.__adjust()
             return
         raise ValueError, type(date)
-
-    def __adjust(self):
-        """
-        Adjust for TZ offset.
-        """
-        if not hasattr(self, 'offset'):
-            return
-        delta = self.tz.adjustment(self.offset)
-        try:
-            d = ( self.datetime + delta )
-            self.datetime = d
-            self.date = d.date()
-            self.time = d.time()
-        except OverflowError:
-            log.warn('"%s" caused overflow, not-adjusted', self.datetime)
 
     def __str__(self):
         return unicode(self)
@@ -346,6 +317,8 @@ class Timezone:
 
     pattern = re.compile('([zZ])|([\-\+][0-9]{2}:[0-9]{2})')
 
+    # XXX: Shouldn't we apply the daylight savings offset depending on the
+    #      date stored in the actual object?
     LOCAL = ( 0-time.timezone/60/60 ) + time.daylight
 
     def __init__(self, offset=None):
@@ -376,3 +349,38 @@ class Timezone:
         """
         delta = ( self.local - offset )
         return dt.timedelta(hours=delta)
+
+
+ZERO = dt.timedelta(0)
+HOUR = dt.timedelta(hours = 1)
+
+
+class FixedOffsetTimezone(dt.tzinfo):
+    """
+    Fixed offset in minutes east from UTC.
+
+    This is exactly the implementation found in Python 2.3.x documentation,
+    with a small change to the __init__ method to allow for pickling and a
+    default name in the form 'sHH:MM' ('s' is the sign.)
+    """
+    def __init__(self, offset = ZERO, name = None):
+        dt.tzinfo.__init__(self)
+        self._offset = offset
+        self._name = name
+        if offset is not None:
+            self._offset = dt.timedelta(minutes = offset)
+
+    def utcoffset(self, dt):
+        return self._offset
+
+    def tzname(self, dt):
+        if self._name is not None:
+            return self._name
+        else:
+            seconds = self._offset.seconds + self._offset.days * 86400
+            hours, seconds = divmod(seconds, 3600)
+            minutes = seconds / 60
+            return "%+03d:%02d" % (hours, minutes)
+
+    def dst(self, dt):
+        return ZERO
