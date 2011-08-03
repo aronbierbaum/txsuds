@@ -7,11 +7,12 @@ log = logging.getLogger(__name__)
 
 import twisted.internet
 from twisted.internet          import defer, reactor
-from twisted.internet.protocol import Protocol
+from twisted.internet.protocol import ClientFactory, Protocol
 from twisted.internet.ssl      import CertificateOptions
-from twisted.web.client        import Agent, WebClientContextFactory
+from twisted.web.client        import Agent, WebClientContextFactory, _parse
 from twisted.web.http_headers  import Headers
 from twisted.web.iweb          import IBodyProducer
+from twisted.web._newclient    import HTTP11ClientProtocol, Request
 from OpenSSL                   import crypto
 
 from zope.interface            import implements
@@ -75,6 +76,65 @@ class ContextFactory(CertificateOptions, WebClientContextFactory):
 
     def getContext(self, hostname, port):
         return CertificateOptions.getContext(self)
+
+
+class _HTTP11ClientFactory(ClientFactory):
+    """
+    A simple factory for L{HTTP11ClientProtocol}, used by L{ProxyAgent}.
+
+    @since: 11.1
+    """
+    protocol = HTTP11ClientProtocol
+
+
+class ProxyAgent(Agent):
+    """
+    An HTTP agent able to cross HTTP proxies.
+
+    @ivar _factory: The factory used to connect to the proxy.
+
+    @ivar _proxyEndpoint: The endpoint used to connect to the proxy, passing
+        the factory.
+
+    @since: 11.1
+    """
+
+    _factory = _HTTP11ClientFactory
+
+    def __init__(self, endpoint):
+        self._proxyEndpoint = endpoint
+
+    def _connect(self, scheme, host, port):
+        """
+        Ignore the connection to the expected host, and connect to the proxy
+        instead.
+        """
+        return self._proxyEndpoint.connect(self._factory())
+
+    def request(self, method, uri, headers=None, bodyProducer=None):
+        """
+        Issue a new request via the configured proxy.
+        """
+        scheme, host, port, path = _parse(uri)
+        request_path = uri
+
+        d = self._connect(scheme, host, port)
+
+        if headers is None:
+            headers = Headers()
+        if not headers.hasHeader('host'):
+            # This is a lot of copying.  It might be nice if there were a bit
+            # less.
+            headers = Headers(dict(headers.getAllRawHeaders()))
+            headers.addRawHeader(
+                'host', self._computeHostValue(scheme, host, port))
+        def cbConnected(proto):
+            # NOTE: For the proxy case the path should be the full URI.
+            return proto.request(Request(method, request_path, headers, bodyProducer))
+        d.addCallback(cbConnected)
+        return d
+
+
 
 
 class TwistedTransport(Transport):
@@ -149,6 +209,10 @@ class TwistedTransport(Transport):
         # Construct an agent to send the request.
         producer = StringProducer(request.message or "")
         agent = Agent(reactor, self.contextFactory)
+        #from twisted.internet.endpoints import TCP4ClientEndpoint
+        #endpoint = TCP4ClientEndpoint(reactor, "localhost", 8080)
+        #agent = ProxyAgent(endpoint)
+
         url = request.url.encode("utf-8")
         response = yield agent.request(method, url, headers, producer)
 
