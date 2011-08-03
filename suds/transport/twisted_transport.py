@@ -1,5 +1,7 @@
 import logging
 import os
+import urllib
+import urlparse
 
 log = logging.getLogger(__name__)
 
@@ -170,8 +172,11 @@ class TwistedTransport(Transport):
 
         @raise TransportError: On all transport errors.
         """
-        if request.url.startswith("file:///"):
-            local_fname = os.path.normpath(request.url[8:])
+        if request.url.startswith("file://"):
+            url_parts   = urlparse.urlparse(request.url)
+            full_path   = os.path.join(url_parts.netloc, url_parts.path)
+            local_fname = urllib.url2pathname(full_path)
+
             with open(local_fname, "rb") as local_file:
                 content = local_file.read()
             defer.returnValue(content)
