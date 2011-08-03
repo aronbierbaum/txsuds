@@ -553,9 +553,10 @@ class Import(Reference):
             self.location = self.locations.get(self.ns[1])
 
         # Build up the complete URL for the import.
-        self.url = self.location
-        if '://' not in self.url:
-            self.url = urljoin(self.schema.baseurl, self.url)
+        if self.location is not None:
+            self.url = self.location
+            if '://' not in self.url:
+                self.url = urljoin(self.schema.baseurl, self.url)
 
     @defer.inlineCallbacks
     def open(self, options):
@@ -622,9 +623,10 @@ class Include(Reference):
         self.location = root.get('schemaLocation')
 
         # Build up the complete URL for the import.
-        self.url = self.location
-        if '://' not in self.url:
-            self.url = urljoin(self.schema.baseurl, self.url)
+        if self.location is not None:
+            self.url = self.location
+            if '://' not in self.url:
+                self.url = urljoin(self.schema.baseurl, self.url)
 
     @defer.inlineCallbacks
     def open(self, options):
