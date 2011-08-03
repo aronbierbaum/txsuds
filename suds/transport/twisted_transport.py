@@ -6,16 +6,16 @@ import urlparse
 log = logging.getLogger(__name__)
 
 import twisted.internet
-from twisted.internet          import defer, reactor
-from twisted.internet.protocol import ClientFactory, Protocol
-from twisted.internet.ssl      import CertificateOptions
-from twisted.web.client        import Agent, WebClientContextFactory, _parse
-from twisted.web.http_headers  import Headers
-from twisted.web.iweb          import IBodyProducer
-from twisted.web._newclient    import HTTP11ClientProtocol, Request
-from OpenSSL                   import crypto
-
-from zope.interface            import implements
+from twisted.internet           import defer, reactor
+from twisted.internet.endpoints import TCP4ClientEndpoint
+from twisted.internet.protocol  import ClientFactory, Protocol
+from twisted.internet.ssl       import CertificateOptions
+from twisted.web.client         import Agent, WebClientContextFactory, _parse
+from twisted.web.http_headers   import Headers
+from twisted.web.iweb           import IBodyProducer
+from twisted.web._newclient     import HTTP11ClientProtocol, Request
+from OpenSSL                    import crypto
+from zope.interface             import implements
 
 from suds.transport import Reply, Transport
 
@@ -206,14 +206,20 @@ class TwistedTransport(Transport):
             auth = auth.encode("base64").strip()
             headers.addRawHeader('Authorization', 'Basic ' + auth)
 
+        # Determine if the user has configured a proxy server.
+        url_parts = urlparse.urlparse(request.url)
+        proxy = self.options.proxy.get(url_parts.scheme, None)
+
         # Construct an agent to send the request.
-        producer = StringProducer(request.message or "")
-        agent = Agent(reactor, self.contextFactory)
-        #from twisted.internet.endpoints import TCP4ClientEndpoint
-        #endpoint = TCP4ClientEndpoint(reactor, "localhost", 8080)
-        #agent = ProxyAgent(endpoint)
+        if proxy is not None:
+            (hostname, port) = proxy.split(":")
+            endpoint = TCP4ClientEndpoint(reactor, hostname, int(port))
+            agent = ProxyAgent(endpoint)
+        else:
+            agent = Agent(reactor, self.contextFactory)
 
         url = request.url.encode("utf-8")
+        producer = StringProducer(request.message or "")
         response = yield agent.request(method, url, headers, producer)
 
         # Construct a simple response consumer and give it the response body.
