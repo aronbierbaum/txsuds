@@ -51,6 +51,7 @@ class SchemaCollection:
     @type children: [L{Schema},...]
     @ivar namespaces: A dictionary of contained schemas by namespace.
     @type namespaces: {str:L{Schema}}
+    @ivar importCache: Dictionary that stores Schema instances by URL.
     """
 
     def __init__(self, wsdl):
