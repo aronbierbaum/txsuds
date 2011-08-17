@@ -85,7 +85,13 @@ class XInteger(XBuiltin):
     def translate(self, value, topython=True):
         if topython:
             if isinstance(value, basestring) and len(value):
-                return int(value)
+                # NOTE: This works around a corner case where a service returns
+                #       a floating point value for a integer field.
+                try:
+                    val = int(value)
+                except ValueError:
+                    val = int(float(value))
+                return val
             else:
                 return None
         else:
