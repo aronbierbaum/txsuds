@@ -8,7 +8,7 @@ log = logging.getLogger(__name__)
 import twisted.internet
 from twisted.internet           import defer, reactor
 from twisted.internet.endpoints import TCP4ClientEndpoint
-from twisted.internet.protocol  import ClientFactory, Protocol
+from twisted.internet.protocol  import ClientCreator, ClientFactory, Protocol
 from twisted.internet.ssl       import CertificateOptions
 from twisted.web.client         import Agent, WebClientContextFactory, _parse
 from twisted.web.http_headers   import Headers
@@ -65,6 +65,54 @@ class StringProducer(object):
         consumer.write(self.body)
 
         return defer.succeed(None)
+
+
+class NewAgent(Agent):
+   """
+   @ivar _connectTimeout: If not C{None}, the timeout passed to C{connectTCP}
+                          or C{connectSSL} for specifying the connection timeout.
+
+   @ivar _bindAddress: If not C{None}, the address passed to C{connectTCP} or
+                       C{connectSSL} for specifying the local address to bind to.
+   """
+   def __init__(self, reactor, contextFactory = WebClientContextFactory(),
+                connectTimeout = None, bindAddress = None):
+      Agent.__init__(self, reactor, contextFactory)
+
+      self._connectTimeout = connectTimeout
+      self._bindAddress = bindAddress
+
+   def _connect(self, scheme, host, port):
+      """
+      Connect to the given host and port, using a transport selected based on
+      scheme.
+
+      @param scheme: A string like C{'http'} or C{'https'} (the only two
+                     supported values) to use to determine how to establish the
+                     connection.
+
+      @param host: A C{str} giving the hostname which will be connected to in
+                   order to issue a request.
+
+      @param port: An C{int} giving the port number the connection will be
+                   on.
+
+      @return: A L{Deferred} which fires with a connected instance of
+               C{self._protocol}.
+      """
+      cc = ClientCreator(self._reactor, self._protocol)
+      kwargs = {}
+      if self._connectTimeout is not None:
+         kwargs['timeout'] = self._connectTimeout
+         kwargs['bindAddress'] = self._bindAddress
+      if scheme == 'http':
+         d = cc.connectTCP(host, port, **kwargs)
+      elif scheme == 'https':
+         d = cc.connectSSL(host, port, self._wrapContextFactory(host, port),
+                           **kwargs)
+      else:
+         d = defer.fail(SchemeNotSupported("Unsupported scheme: %r" % (scheme,)))
+      return d
 
 
 class ContextFactory(CertificateOptions, WebClientContextFactory):
@@ -133,8 +181,6 @@ class ProxyAgent(Agent):
             return proto.request(Request(method, request_path, headers, bodyProducer))
         d.addCallback(cbConnected)
         return d
-
-
 
 
 class TwistedTransport(Transport):
@@ -213,10 +259,12 @@ class TwistedTransport(Transport):
         # Construct an agent to send the request.
         if proxy is not None:
             (hostname, port) = proxy.split(":")
-            endpoint = TCP4ClientEndpoint(reactor, hostname, int(port))
+            endpoint = TCP4ClientEndpoint(reactor, hostname, int(port),
+                                          timeout = self.options.timeout)
             agent = ProxyAgent(endpoint)
         else:
-            agent = Agent(reactor, self.contextFactory)
+            agent = NewAgent(reactor, self.contextFactory,
+                             connectTimeout = self.options.timeout)
 
         url = request.url.encode("utf-8")
         producer = StringProducer(request.message or "")
