@@ -725,6 +725,9 @@ class Any(Content):
     """
     Represents an (xsd) <any/> node
     """
+    def __init__(self, schema, root):
+        Content.__init__(self, schema, root)
+        self.name = self.name or "any"
 
     def get_child(self, name):
         root = self.root.clone()
