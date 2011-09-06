@@ -74,6 +74,13 @@ class NewAgent(Agent):
 
    @ivar _bindAddress: If not C{None}, the address passed to C{connectTCP} or
                        C{connectSSL} for specifying the local address to bind to.
+
+   @note: This class was added to add support for connection timeouts to the
+          Agent class in Twisted 11.0.0. It was based of a change made in
+          Twisted that is still pending a release. Once a new version of Twisted
+          is released, this class can be removed.
+
+          http://twistedmatrix.com/trac/changeset/32244
    """
    def __init__(self, reactor, contextFactory = WebClientContextFactory(),
                 connectTimeout = None, bindAddress = None):
