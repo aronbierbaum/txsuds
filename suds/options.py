@@ -107,6 +107,8 @@ class Options(Skin):
     """
     def __init__(self, **kwargs):
         domain = __name__
+        default_envns = ('SOAP-ENV', 'http://schemas.xmlsoap.org/soap/envelope/')
+
         definitions = [
             Definition('cache', Cache, NoCache()),
             Definition('faults', bool, True),
@@ -114,6 +116,7 @@ class Options(Skin):
             Definition('service', (int, basestring), None),
             Definition('port', (int, basestring), None),
             Definition('location', basestring, None),
+            Definition('envns', tuple, default_envns),
             Definition('soapheaders', (), ()),
             Definition('wsse', Security, None),
             Definition('doctor', Doctor, None),

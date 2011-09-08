@@ -22,7 +22,7 @@ from logging import getLogger
 from suds import *
 from suds.mx.encoded import Encoded as MxEncoded
 from suds.umx.encoded import Encoded as UmxEncoded
-from suds.bindings.binding import Binding, envns
+from suds.bindings.binding import Binding
 from suds.sax.element import Element
 
 log = getLogger(__name__)
@@ -41,7 +41,8 @@ class RPC(Binding):
     def envelope(self, header, body):
         env = Binding.envelope(self, header, body)
         env.addPrefix(encns[0], encns[1])
-        env.set('%s:encodingStyle' % envns[0],
+        env_ns = self.wsdl.options.envns
+        env.set('%s:encodingStyle' % env_ns[0],
                 'http://schemas.xmlsoap.org/soap/encoding/')
         return env
 

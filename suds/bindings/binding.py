@@ -38,8 +38,6 @@ from copy import deepcopy
 
 log = getLogger(__name__)
 
-envns = ('SOAP-ENV', 'http://schemas.xmlsoap.org/soap/envelope/')
-
 
 class Binding:
     """
@@ -173,7 +171,8 @@ class Binding:
         @type body: L{Element}
         @raise WebFault: When found.
         """
-        fault = body.getChild('Fault', envns)
+        env_ns = self.wsdl.options.envns
+        fault = body.getChild('Fault', env_ns)
         if fault is None:
             return
         unmarshaller = self.unmarshaller(False)
@@ -318,7 +317,8 @@ class Binding:
         @return: The soap envelope containing the body and header.
         @rtype: L{Element}
         """
-        env = Element('Envelope', ns=envns)
+        env_ns = self.wsdl.options.envns
+        env = Element('Envelope', ns=env_ns)
         env.addPrefix(Namespace.xsins[0], Namespace.xsins[1])
         env.append(header)
         env.append(body)
@@ -332,7 +332,8 @@ class Binding:
         @return: the soap body fragment.
         @rtype: L{Element}
         """
-        header = Element('Header', ns=envns)
+        env_ns = self.wsdl.options.envns
+        header = Element('Header', ns=env_ns)
         header.append(content)
         return header
 
@@ -411,7 +412,8 @@ class Binding:
         @return: the soap body fragment.
         @rtype: L{Element}
         """
-        body = Element('Body', ns=envns)
+        env_ns = self.wsdl.options.envns
+        body = Element('Body', ns=env_ns)
         body.append(content)
         return body
 
