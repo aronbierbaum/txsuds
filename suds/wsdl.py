@@ -322,7 +322,7 @@ class Import(WObject):
             url = urljoin(definitions.url, url)
         options = definitions.options
         d = Definitions(url, options)
-        yield d.open(url)
+        yield d.build()
         if d.root.match(Definitions.Tag, wsdlns):
             self.import_definitions(definitions, d)
             return
