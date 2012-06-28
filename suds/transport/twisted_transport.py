@@ -5,25 +5,15 @@ import urlparse
 
 log = logging.getLogger(__name__)
 
-from twisted import version
-from twisted.python.versions import Version
-
-if version >= Version('twisted', 13, 1, 0):
-    from twisted.web.client import _URI
-else:
-    from twisted.web.client import _parse
-
-import twisted.internet
 from twisted.internet           import defer, reactor
 from twisted.internet.endpoints import TCP4ClientEndpoint
-from twisted.internet.protocol  import ClientCreator, ClientFactory, Protocol
-from twisted.internet.ssl       import CertificateOptions
-from twisted.web.client         import Agent, WebClientContextFactory
+from twisted.internet.protocol  import Protocol
+from twisted.internet.ssl       import optionsForClientTLS
+from twisted.web.client         import Agent, ProxyAgent, _requireSSL
 from twisted.web.http_headers   import Headers
-from twisted.web.iweb           import IBodyProducer
-from twisted.web._newclient     import HTTP11ClientProtocol, Request
+from twisted.web.iweb           import IBodyProducer, IPolicyForHTTPS
 from OpenSSL                    import crypto
-from zope.interface             import implements
+from zope.interface             import implements, implementer
 
 from suds.transport import Reply, Transport
 
@@ -84,137 +74,31 @@ class StringProducer(object):
         pass
 
 
-class NewAgent(Agent):
-   """
-   @ivar _connectTimeout: If not C{None}, the timeout passed to C{connectTCP}
-                          or C{connectSSL} for specifying the connection timeout.
-
-   @ivar _bindAddress: If not C{None}, the address passed to C{connectTCP} or
-                       C{connectSSL} for specifying the local address to bind to.
-
-   @note: This class was added to add support for connection timeouts to the
-          Agent class in Twisted 11.0.0. It was based of a change made in
-          Twisted that is still pending a release. Once a new version of Twisted
-          is released, this class can be removed.
-
-          http://twistedmatrix.com/trac/changeset/32244
-   """
-   def __init__(self, reactor, contextFactory = WebClientContextFactory(),
-                connectTimeout = None, bindAddress = None):
-      Agent.__init__(self, reactor, contextFactory)
-
-      self._connectTimeout = connectTimeout
-      self._bindAddress = bindAddress
-
-   def _connect(self, scheme, host, port):
-      """
-      Connect to the given host and port, using a transport selected based on
-      scheme.
-
-      @param scheme: A string like C{'http'} or C{'https'} (the only two
-                     supported values) to use to determine how to establish the
-                     connection.
-
-      @param host: A C{str} giving the hostname which will be connected to in
-                   order to issue a request.
-
-      @param port: An C{int} giving the port number the connection will be
-                   on.
-
-      @return: A L{Deferred} which fires with a connected instance of
-               C{self._protocol}.
-      """
-      cc = ClientCreator(self._reactor, self._protocol)
-      kwargs = {}
-      if self._connectTimeout is not None:
-         kwargs['timeout'] = self._connectTimeout
-         kwargs['bindAddress'] = self._bindAddress
-      if scheme == 'http':
-         d = cc.connectTCP(host, port, **kwargs)
-      elif scheme == 'https':
-         d = cc.connectSSL(host, port, self._wrapContextFactory(host, port),
-                           **kwargs)
-      else:
-         d = defer.fail(SchemeNotSupported("Unsupported scheme: %r" % (scheme,)))
-      return d
-
-
-class ContextFactory(CertificateOptions, WebClientContextFactory):
+@implementer(IPolicyForHTTPS)
+class PolicyForHTTPS(object):
     """
-    Custom context facotry that allows any hostname and port combination.
+    Custom SSL connection creator that allows specifying private key, certificate
+    and custom options.
     """
-    def __init__(self, **kwargs):
-        CertificateOptions.__init__(self, **kwargs)
+    def __init__(self, trustRoot = None, privateKey = None, certificate = None, **kwargs):
+        self._trustRoot = trustRoot
+        self._opts = dict(kwargs)
+        self._opts["privateKey"] = privateKey
+        self._opts["certificate"] = certificate
 
-    def getContext(self, hostname, port):
-        return CertificateOptions.getContext(self)
-
-
-class _HTTP11ClientFactory(ClientFactory):
-    """
-    A simple factory for L{HTTP11ClientProtocol}, used by L{ProxyAgent}.
-
-    @since: 11.1
-    """
-    protocol = HTTP11ClientProtocol
-
-
-class ProxyAgent(Agent):
-    """
-    An HTTP agent able to cross HTTP proxies.
-
-    @ivar _factory: The factory used to connect to the proxy.
-
-    @ivar _proxyEndpoint: The endpoint used to connect to the proxy, passing
-        the factory.
-
-    @since: 11.1
-    """
-
-    _factory = _HTTP11ClientFactory
-
-    def __init__(self, endpoint):
-        self._proxyEndpoint = endpoint
-
-    def _connect(self, scheme, host, port):
+    @_requireSSL
+    def creatorForNetloc(self, hostname, port):
         """
-        Ignore the connection to the expected host, and connect to the proxy
-        instead.
+        Create a client connection creator for a given network location.
+
+        @param hostname: The hostname part of the URI.
+        @type  hostname: L{bytes}
+        @param port:     The port part of the URI.
+        @type  port:     L{int}
         """
-        return self._proxyEndpoint.connect(self._factory())
-
-    def request(self, method, uri, headers=None, bodyProducer=None):
-        """
-        Issue a new request via the configured proxy.
-        """
-
-        if version >= Version('twisted', 13, 1, 0):
-            parsed_uri = _URI.getFromBytes(uri)
-            scheme = parsed_uri.scheme
-            host = parsed_uri.host
-            port = parsed_uri.port
-        else:
-            scheme, host, port, path = _parse(uri)
-        request_path = uri
-
-        d = self._connect(scheme, host, port)
-
-        if headers is None:
-            headers = Headers()
-        if not headers.hasHeader('host'):
-            # This is a lot of copying.  It might be nice if there were a bit
-            # less.
-            headers = Headers(dict(headers.getAllRawHeaders()))
-            headers.addRawHeader(
-                'host', self._computeHostValue(scheme, host, port))
-
-        def cbConnected(proto):
-            # NOTE: For the proxy case the path should be the full URI.
-            return proto.request(
-                Request(method, request_path, headers, bodyProducer))
-
-        d.addCallback(cbConnected)
-        return d
+        return optionsForClientTLS(hostname.decode("ascii"),
+                                   trustRoot = self._trustRoot,
+                                   extraCertificateOptions = self._opts)
 
 
 class TwistedTransport(Transport):
@@ -229,15 +113,15 @@ class TwistedTransport(Transport):
         from suds.transport.options import Options
         self.options = Options()
         del Options
-        self._contextFactory = None
+        self._httpsPolicy = None
 
-    def _getContextFactory(self):
+    def _getHttpsPolicy(self):
         """
-        Helper method that lazily constructs the context factory for this
+        Helper method that lazily constructs the HTTPS options to use for this
         transport.
         """
-        if self._contextFactory is not None:
-            return self._contextFactory
+        if self._httpsPolicy is not None:
+            return self._httpsPolicy
 
         # Attempt to load the certificate and private key from a file.
         certificate = None
@@ -263,11 +147,11 @@ class TwistedTransport(Transport):
             other_opts[opt_name] = getattr(self.options, opt_name)
 
 
-        self._contextFactory = ContextFactory(privateKey = priv_key,
-                                              certificate = certificate,
-                                              **other_opts)
-        return self._contextFactory
-    contextFactory = property(_getContextFactory)
+        self._httpsPolicy = PolicyForHTTPS(privateKey = priv_key,
+                                           certificate = certificate,
+                                           **other_opts)
+        return self._httpsPolicy
+    httpsPolicy = property(_getHttpsPolicy)
 
     @defer.inlineCallbacks
     def _request(self, request, method):
@@ -297,8 +181,8 @@ class TwistedTransport(Transport):
                                           timeout = self.options.timeout)
             agent = ProxyAgent(endpoint)
         else:
-            agent = NewAgent(reactor, self.contextFactory,
-                             connectTimeout = self.options.timeout)
+            agent = Agent(reactor, self.httpsPolicy,
+                          connectTimeout = self.options.timeout)
 
         url = request.url.encode("utf-8")
         producer = StringProducer(request.message or "")
