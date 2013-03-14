@@ -70,7 +70,7 @@ class StringProducer(object):
         pass
 
     def resumeProducing(self):
-       pass
+        pass
 
     def stopProducing(self):
         pass
