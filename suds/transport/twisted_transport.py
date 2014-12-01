@@ -5,12 +5,20 @@ import urlparse
 
 log = logging.getLogger(__name__)
 
+from twisted import version
+from twisted.python.versions import Version
+
+if version >= Version('twisted', 13, 1, 0):
+    from twisted.web.client import _URI
+else:
+    from twisted.web.client import _parse
+
 import twisted.internet
 from twisted.internet           import defer, reactor
 from twisted.internet.endpoints import TCP4ClientEndpoint
 from twisted.internet.protocol  import ClientCreator, ClientFactory, Protocol
 from twisted.internet.ssl       import CertificateOptions
-from twisted.web.client         import Agent, WebClientContextFactory, _parse
+from twisted.web.client         import Agent, WebClientContextFactory
 from twisted.web.http_headers   import Headers
 from twisted.web.iweb           import IBodyProducer
 from twisted.web._newclient     import HTTP11ClientProtocol, Request
@@ -179,7 +187,14 @@ class ProxyAgent(Agent):
         """
         Issue a new request via the configured proxy.
         """
-        scheme, host, port, path = _parse(uri)
+
+        if version >= Version('twisted', 13, 1, 0):
+            parsed_uri = _URI.getFromBytes(uri)
+            scheme = parsed_uri.scheme
+            host = parsed_uri.host
+            port = parsed_uri.port
+        else:
+            scheme, host, port, path = _parse(uri)
         request_path = uri
 
         d = self._connect(scheme, host, port)
@@ -192,9 +207,12 @@ class ProxyAgent(Agent):
             headers = Headers(dict(headers.getAllRawHeaders()))
             headers.addRawHeader(
                 'host', self._computeHostValue(scheme, host, port))
+
         def cbConnected(proto):
             # NOTE: For the proxy case the path should be the full URI.
-            return proto.request(Request(method, request_path, headers, bodyProducer))
+            return proto.request(
+                Request(method, request_path, headers, bodyProducer))
+
         d.addCallback(cbConnected)
         return d
 
