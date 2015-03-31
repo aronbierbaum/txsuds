@@ -138,18 +138,13 @@ class TwistedTransport(Transport):
                 with open(key_data, "rb") as key_file:
                     key_data = key_file.read()
             priv_key = crypto.load_privatekey(crypto.FILETYPE_PEM, key_data)
+        trust_root = None
+        if self.options.trustRoot:
+            trustRoot = self.options.trustRoot
 
-        # Get the rest of the options for the context factory.
-        other_opts = {}
-        for opt_name in ['method', 'verify', 'caCerts', 'verifyDepth',
-                         'requireCertificate', 'verifyOnce', 'enableSingleUseKeys',
-                         'enableSessions', 'fixBrokenPeers', 'enableSessionTickets']:
-            other_opts[opt_name] = getattr(self.options, opt_name)
-
-
-        self._httpsPolicy = PolicyForHTTPS(privateKey = priv_key,
-                                           certificate = certificate,
-                                           **other_opts)
+        self._httpsPolicy = PolicyForHTTPS(trustRoot   = trust_root,
+                                           privateKey  = priv_key,
+                                           certificate = certificate)
         return self._httpsPolicy
     httpsPolicy = property(_getHttpsPolicy)
 
