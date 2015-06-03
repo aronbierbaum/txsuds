@@ -1,21 +1,18 @@
-import logging
 import os
 import urllib
 import urlparse
 
-log = logging.getLogger(__name__)
+from twisted.internet            import defer, reactor
+from twisted.internet.endpoints  import TCP4ClientEndpoint
+from twisted.internet.protocol   import Protocol
+from twisted.web.client          import Agent, ProxyAgent, _requireSSL
+from twisted.web.http_headers    import Headers
+from twisted.web.iweb            import IBodyProducer, IPolicyForHTTPS
+from OpenSSL                     import crypto
+from zope.interface              import implements, implementer
 
-from twisted.internet           import defer, reactor
-from twisted.internet.endpoints import TCP4ClientEndpoint
-from twisted.internet.protocol  import Protocol
-from twisted.internet.ssl       import optionsForClientTLS
-from twisted.web.client         import Agent, ProxyAgent, _requireSSL
-from twisted.web.http_headers   import Headers
-from twisted.web.iweb           import IBodyProducer, IPolicyForHTTPS
-from OpenSSL                    import crypto
-from zope.interface             import implements, implementer
-
-from suds.transport import Reply, Transport
+from suds.transport           import Reply, Transport
+from suds.transport.sslverify import optionsForClientTLS
 
 
 class StringResponseConsumer(Protocol):
@@ -138,13 +135,19 @@ class TwistedTransport(Transport):
                 with open(key_data, "rb") as key_file:
                     key_data = key_file.read()
             priv_key = crypto.load_privatekey(crypto.FILETYPE_PEM, key_data)
-        trust_root = None
-        if self.options.trustRoot:
-            trustRoot = self.options.trustRoot
 
-        self._httpsPolicy = PolicyForHTTPS(trustRoot   = trust_root,
-                                           privateKey  = priv_key,
-                                           certificate = certificate)
+        # Get the rest of the options for the context factory.
+        other_opts = {}
+        for opt_name in ['method', 'verify', 'caCerts', 'verifyDepth', 'trustRoot',
+                         'requireCertificate', 'verifyOnce', 'enableSingleUseKeys',
+                         'enableSessions', 'fixBrokenPeers', 'enableSessionTickets',
+                         'acceptableCiphers']:
+            other_opts[opt_name] = getattr(self.options, opt_name)
+
+
+        self._httpsPolicy = PolicyForHTTPS(privateKey = priv_key,
+                                           certificate = certificate,
+                                           **other_opts)
         return self._httpsPolicy
     httpsPolicy = property(_getHttpsPolicy)
 
