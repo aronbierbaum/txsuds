@@ -22,7 +22,6 @@ Contains classes for transport options.
 from suds.transport import *
 from suds.properties import *
 
-from twisted.internet._sslverify import IOpenSSLTrustRoot
 
 class Options(Skin):
     """
@@ -56,6 +55,9 @@ class Options(Skin):
         - B{trustRoot} - The trust settings for an OpenSSL context to use.
                 - type: {IOpenSSLTrustRoot}
                 - default: None
+        - B{acceptableCiphers} - The acceptable ciphers to use.
+                - type: {IAcceptableCiphers}
+                - default: None
 
         @see twisted.internet._sslverify.OpenSSLCertificateOptions
     """
@@ -69,6 +71,17 @@ class Options(Skin):
             Definition('password', basestring, None),
             Definition('privateKey', basestring, None),
             Definition('certificate', basestring, None),
-            Definition('trustRoot', IOpenSSLTrustRoot, None)
+            Definition('method', int, None),
+            Definition('verify', bool, False),
+            Definition('caCerts', list, None),
+            Definition('verifyDepth', int, 9),
+            Definition('requireCertificate', bool, True),
+            Definition('verifyOnce', bool, True),
+            Definition('enableSingleUseKeys', bool, True),
+            Definition('enableSessions', bool, True),
+            Definition('fixBrokenPeers', bool, False),
+            Definition('enableSessionTickets', bool, False),
+            Definition('acceptableCiphers', object, None),
+            Definition('trustRoot', object, None)
         ]
         Skin.__init__(self, domain, definitions, kwargs)
