@@ -5,6 +5,7 @@ import urlparse
 from twisted.internet            import defer, reactor
 from twisted.internet.endpoints  import TCP4ClientEndpoint
 from twisted.internet.protocol   import Protocol
+from twisted.web                 import http
 from twisted.web.client          import Agent, ProxyAgent, _requireSSL
 from twisted.web.http_headers    import Headers
 from twisted.web.iweb            import IBodyProducer, IPolicyForHTTPS
@@ -185,6 +186,16 @@ class TwistedTransport(Transport):
         url = request.url.encode("utf-8")
         producer = StringProducer(request.message or "")
         response = yield agent.request(method, url, headers, producer)
+
+        # If the initial request returned a redirection response, attempt to follow it.
+        http_redirect_codes = [http.MOVED_PERMANENTLY,  # 301
+                               http.FOUND,              # 302
+                               http.SEE_OTHER,          # 303
+                               http.TEMPORARY_REDIRECT] # 307
+        if response.code in http_redirect_codes and response.headers.hasHeader("Location"):
+            new_url  = response.headers.getRawHeaders("Location")[0]
+            producer = StringProducer(request.message or "")
+            response = yield agent.request(method, new_url, headers, producer)
 
         # Construct a simple response consumer and give it the response body.
         consumer = StringResponseConsumer()
