@@ -12,6 +12,7 @@ from twisted.web.iweb            import IBodyProducer, IPolicyForHTTPS
 from OpenSSL                     import crypto
 from zope.interface              import implements, implementer
 
+from suds.properties          import Unskin
 from suds.transport           import Reply, Transport
 from suds.transport.sslverify import optionsForClientTLS
 
@@ -94,7 +95,7 @@ class PolicyForHTTPS(object):
         @param port:     The port part of the URI.
         @type  port:     L{int}
         """
-        return optionsForClientTLS(hostname.decode("ascii"),
+        return optionsForClientTLS(unicode(hostname),
                                    trustRoot = self._trustRoot,
                                    extraCertificateOptions = self._opts)
 
@@ -139,12 +140,17 @@ class TwistedTransport(Transport):
 
         # Get the rest of the options for the context factory.
         other_opts = {}
+        props = Unskin(self.options)
         for opt_name in ['method', 'verify', 'caCerts', 'verifyDepth', 'trustRoot',
                          'requireCertificate', 'verifyOnce', 'enableSingleUseKeys',
                          'enableSessions', 'fixBrokenPeers', 'enableSessionTickets',
                          'acceptableCiphers']:
-            other_opts[opt_name] = getattr(self.options, opt_name)
+            val = getattr(self.options, opt_name)
 
+            # Only pass values that have been specified because OpenSSLCertificateOptions
+            # uses _mutuallyExclusiveArguments.
+            if val != props.definition(opt_name).default:
+                other_opts[opt_name] = val
 
         self._httpsPolicy = PolicyForHTTPS(privateKey = priv_key,
                                            certificate = certificate,
